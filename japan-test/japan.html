@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>일본어 → 한국어 번역 테스트 (오프라인 · 음성입력)</title>
+<style>
+  :root{
+    --green:#22b24b; --red:#ea1f28; --yellow:#ffe600; --ink:#101319; --bg:#fbfcfe;
+    --card:#ffffff; --muted:#7a8699; --border:#e5e8ef;
+  }
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--ink);
+    font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1000px;margin:28px auto;display:grid;grid-template-columns:3fr 1fr;gap:24px;padding:0 16px}
+  .board{border:3px solid #000;border-radius:8px;background:var(--card);position:relative;min-height:460px}
+  .pad{padding:24px}
+  .titleRow{display:flex;align-items:center;gap:16px;margin-bottom:18px}
+  .titleBadge{width:64px;height:64px;background:var(--yellow);border-radius:6px;border:2px solid #000;display:grid;place-items:center;font-weight:700}
+  .title{font-size:34px;font-weight:900;color:var(--green)}
+  .block{border-radius:8px;padding:18px 16px;margin:18px 0;border:2px solid #000}
+  .problem{background:var(--green);color:#fff;min-height:88px;display:flex;align-items:center;justify-content:center;
+           font-size:26px;font-weight:800;text-align:center}
+  .inputBox{background:var(--red);display:grid;gap:12px}
+  .inputBox label{color:#fff;font-weight:700}
+  .inputRow{display:flex;gap:10px;align-items:center}
+  input[type="text"]{flex:1;padding:14px 12px;font-size:20px;border-radius:8px;border:2px solid #000;outline:none}
+  button{padding:12px 16px;border-radius:10px;border:2px solid #000;background:#fff;cursor:pointer;font-weight:800}
+  button:active{transform:translateY(1px)}
+  .muted{color:var(--muted);font-size:13px}
+  .side{display:flex;flex-direction:column;gap:16px}
+  .legend{border:1px dashed var(--border);border-radius:8px;padding:16px}
+  .legendRow{display:flex;align-items:center;gap:12px;margin:10px 0}
+  .chip{width:64px;height:64px;border-radius:6px;border:2px solid #000}
+  .chip.red{background:var(--red)} .chip.green{background:var(--green)} .chip.yellow{background:var(--yellow)}
+  .scoreBox{position:absolute;left:16px;top:16px;display:grid;gap:6px}
+  .scoreDot{width:58px;height:58px;background:var(--yellow);border:2px solid #000;border-radius:6px}
+  .scoreText{font-weight:900;font-size:18px;color:#d6b800;text-shadow:0 1px 0 #fff}
+  .flex{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .fileRow{margin-top:6px}
+  .bar{height:8px;background:#eef1f7;border-radius:999px;overflow:hidden}
+  .bar > span{display:block;height:100%;background:#3b82f6;width:0%}
+  .center{text-align:center}
+  .hidden{display:none !important}
+  .result{
+    position:fixed;inset:0;background:rgba(0,0,0,.58);display:none;align-items:center;justify-content:center;padding:20px
+  }
+  .resultCard{background:#fff;border-radius:12px;border:2px solid #000;max-width:720px;width:100%;padding:18px}
+  .resultCard h2{margin:6px 0 8px}
+  .table{width:100%;border-collapse:collapse;margin-top:10px}
+  .table th,.table td{border:1px solid #e6e8ee;padding:8px;font-size:14px}
+  .table th{background:#f6f7fb}
+  /* 마이크 버튼 상태 */
+  #micBtn[aria-pressed="true"]{ background:#ffe6e6; border-color:#ea1f28 }
+  @media (max-width:860px){ .wrap{grid-template-columns:1fr} .board{min-height:520px} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <!-- 메인 보드 -->
+  <section class="board" id="board">
+    <div class="scoreBox">
+      <div class="scoreDot" title="점수 & 시간"></div>
+      <div class="scoreText" id="scoreTime">점수 0 / 10 · 01:30</div>
+      <div class="muted" id="progressText">Q 0 / 10</div>
+    </div>
+
+    <div class="pad">
+      <div class="titleRow">
+        <div class="titleBadge" title="점수·시간 표시용"></div>
+        <div class="title">수행평가</div>
+      </div>
+
+      <div class="block problem" id="problemBox">CSV를 불러오세요 (jp → kr)</div>
+
+      <div class="block inputBox">
+        <label for="ans">입력창</label>
+        <div class="inputRow">
+          <input id="ans" type="text" placeholder="한국어 번역을 입력하세요" autocomplete="off" disabled />
+          <button id="submitBtn" disabled>제출</button>
+          <button id="passBtn" disabled>패스</button>
+          <!-- 마이크 버튼 & 힌트 -->
+          <button id="micBtn" type="button" aria-pressed="false" title="누르고 말하기(PTT)">🎤</button>
+        </div>
+        <div class="flex muted">
+          <span id="feedback">준비 중…</span>
+          <span id="micHint" class="muted">마이크 버튼을 누르고 말하세요</span>
+        </div>
+      </div>
+
+      <div class="fileRow flex">
+        <input id="file" type="file" accept=".csv" />
+        <button id="startBtn" disabled>시작</button>
+        <button id="restartBtn" class="hidden">다시하기</button>
+        <span class="muted">CSV 헤더: <b>jp,kr</b> · 여러 정답은 <b>|</b>로 구분</span>
+      </div>
+
+      <div class="bar" aria-hidden="true" style="margin-top:10px"><span id="timeBar"></span></div>
+    </div>
+  </section>
+
+  <!-- 우측 범례 & 도움말 -->
+  <aside class="side">
+    <div class="legend">
+      <div class="legendRow"><div class="chip red"></div><div><b>입력창</b></div></div>
+      <div class="legendRow"><div class="chip green"></div><div><b>문제</b></div></div>
+      <div class="legendRow"><div class="chip yellow"></div>
+        <div><b>점수 및 시간</b><br><span class="muted">남은시간 · 현재점수</span></div>
+      </div>
+      <hr>
+      <div class="flex">
+        <button id="downloadSample">샘플 CSV</button>
+      </div>
+      <p class="muted">오프라인 동작 · 외부 라이브러리 없음</p>
+    </div>
+  </aside>
+</div>
+
+<!-- 결과 모달 -->
+<div class="result" id="result">
+  <div class="resultCard">
+    <h2>결과</h2>
+    <p id="finalLine" style="font-weight:700"></p>
+    <table class="table" id="wrongTable">
+      <thead><tr><th>#</th><th>문제(JP)</th><th>정답(들)</th><th>내 답</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div class="center" style="margin-top:12px">
+      <button id="closeResult">닫기</button>
+      <button id="restartFromResult">다시하기</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ===================== 공통 상태 ===================== */
+const MAX_QUESTIONS = 10;
+const LIMIT_SECONDS = 90; // 1분 30초
+let pool = [];         // {jp, answers[]}[]
+let quiz = [];         // 출제 배열
+let idx = 0;           // 현재 인덱스
+let score = 0;
+let timer = null;
+let left = LIMIT_SECONDS;
+let wrongs = [];       // {jp, answers, mine}
+
+const els = {
+  problem: document.getElementById('problemBox'),
+  ans: document.getElementById('ans'),
+  submit: document.getElementById('submitBtn'),
+  pass: document.getElementById('passBtn'),
+  feedback: document.getElementById('feedback'),
+  file: document.getElementById('file'),
+  start: document.getElementById('startBtn'),
+  restart: document.getElementById('restartBtn'),
+  scoreTime: document.getElementById('scoreTime'),
+  progressText: document.getElementById('progressText'),
+  timeBar: document.getElementById('timeBar'),
+  result: document.getElementById('result'),
+  wrongBody: document.querySelector('#wrongTable tbody'),
+  finalLine: document.getElementById('finalLine'),
+  closeResult: document.getElementById('closeResult'),
+  restartFromResult: document.getElementById('restartFromResult'),
+  downloadSample: document.getElementById('downloadSample'),
+  micBtn: document.getElementById('micBtn'),
+  micHint: document.getElementById('micHint'),
+};
+
+/* ===================== 유틸 ===================== */
+// 간단 CSV 파서(따옴표 처리 지원, CRLF/빈줄 제외)
+function parseCSV(text){
+  const rows = [];
+  let i=0, field='', row=[], inQuotes=false;
+  for(; i<text.length; i++){
+    const c = text[i], n = text[i+1];
+    if(inQuotes){
+      if(c === '"' && n === '"'){ field+='"'; i++; }
+      else if(c === '"'){ inQuotes = false; }
+      else field += c;
+    }else{
+      if(c === '"'){ inQuotes = true; }
+      else if(c === ','){ row.push(field); field=''; }
+      else if(c === '\n'){
+        row.push(field); field='';
+        if(row.length>1 || (row.length===1 && row[0].trim()!=="")) rows.push(row.map(v=>v.replace(/\r/g,'')));
+        row=[];
+      }else field += c;
+    }
+  }
+  if(field!=='' || row.length){ row.push(field); rows.push(row.map(v=>v.replace(/\r/g,''))); }
+  return rows;
+}
+// 정답 비교(공백/일부 문장부호/괄호 제거, 대소문자 무시)
+function normalize(s){
+  return (s||'')
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/[(),.!?]/g,'')
+    .replace(/\s+/g,' ');
+}
+function isCorrect(input, answers){
+  const mine = normalize(input);
+  return answers.some(a => normalize(a) === mine);
+}
+// 셔플
+function shuffle(a){
+  for(let i=a.length-1;i>0;i--){
+    const j = (Math.random()* (i+1))|0; [a[i],a[j]]=[a[j],a[i]];
+  }
+  return a;
+}
+function updateTop(){
+  els.scoreTime.textContent = `점수 ${score} / 10 · ${String(Math.floor(left/60)).padStart(2,'0')}:${String(left%60).padStart(2,'0')}`;
+  els.progressText.textContent = `Q ${Math.min(idx,MAX_QUESTIONS)} / ${MAX_QUESTIONS}`;
+  els.timeBar.style.width = `${100*(LIMIT_SECONDS-left)/LIMIT_SECONDS}%`;
+}
+function escapeHtml(s){ return (s||'').toString().replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+
+/* ===================== 파일 인코딩 처리 ===================== */
+// 파일을 UTF-8로 먼저, 깨짐(�)이 보이면 EUC-KR로 재디코딩
+async function readCsvFile(file){
+  const buf = await file.arrayBuffer();
+  const u8  = new Uint8Array(buf);
+  let text  = new TextDecoder('utf-8', {fatal:false}).decode(u8);
+  if (text.includes('�')) {
+    try { text = new TextDecoder('euc-kr').decode(u8); } catch(e){}
+  }
+  return text;
+}
+
+/* ===================== 로딩/시작 ===================== */
+els.file.addEventListener('change', async (e)=>{
+  const f = e.target.files?.[0];
+  if(!f){ els.start.disabled = true; return; }
+  const txt = await readCsvFile(f);   // ← 인코딩 안전 로딩
+  const rows = parseCSV(txt);
+  const header = rows[0].map(h=>h.trim().toLowerCase());
+  const jpi = header.indexOf('jp');
+  const kri = header.indexOf('kr');
+  if(jpi<0 || kri<0){
+    alert('CSV 첫 줄에 jp,kr 헤더가 필요합니다.');
+    els.start.disabled = true;
+    return;
+  }
+  pool = rows.slice(1)
+    .filter(r=>r[jpi] && r[kri])
+    .map(r=>{
+      const jp = r[jpi].trim();
+      const answers = r[kri].split('|').map(s=>s.trim()).filter(Boolean);
+      return {jp, answers};
+    });
+  if(pool.length===0){ alert('유효한 문제 행이 없습니다.'); els.start.disabled = true; return; }
+  els.start.disabled = false;
+  els.feedback.textContent = `로드 완료: ${pool.length}문항 · 시작을 누르세요`;
+});
+
+els.start.addEventListener('click', startGame);
+els.restart.addEventListener('click', startGame);
+
+function startGame(){
+  wrongs = []; score = 0; idx = 0; left = LIMIT_SECONDS;
+  quiz = shuffle(pool.slice()).slice(0, MAX_QUESTIONS);
+  enableInput(true);
+  nextQuestion();
+  if(timer) clearInterval(timer);
+  timer = setInterval(()=>{
+    left--;
+    updateTop();
+    if(left<=0){ timeUp(); }
+  },1000);
+  els.restart.classList.add('hidden');
+}
+
+function enableInput(on){
+  els.ans.disabled = els.submit.disabled = els.pass.disabled = !on;
+  toggleMicAvailability();
+  if(on){ els.ans.focus(); els.ans.select(); }
+}
+
+/* ===================== 진행 ===================== */
+function nextQuestion(){
+  if(idx>=quiz.length){ finish(); return; }
+  const q = quiz[idx];
+  els.problem.textContent = q.jp;
+  els.ans.value = '';
+  els.feedback.textContent = `번역을 입력하고 [제출] 또는 [패스]`;
+  updateTop();
+}
+
+els.submit.addEventListener('click', ()=>{
+  if(idx>=quiz.length) return;
+  const mine = els.ans.value.trim();
+  if(mine===''){ els.feedback.textContent='입력을 확인하세요.'; els.ans.focus(); return; }
+  const q = quiz[idx];
+  const ok = isCorrect(mine, q.answers);
+  if(ok){
+    score++;
+    els.feedback.textContent = '정답!';
+  }else{
+    wrongs.push({jp:q.jp, answers:q.answers, mine});
+    els.feedback.textContent = `오답! 정답: ${q.answers.join(' / ')}`;
+  }
+  idx++;
+  setTimeout(nextQuestion, 450);
+});
+
+els.pass.addEventListener('click', ()=>{
+  if(idx>=quiz.length) return;
+  const q = quiz[idx];
+  wrongs.push({jp:q.jp, answers:q.answers, mine:'(패스)'});
+  els.feedback.textContent = `패스! 정답: ${q.answers.join(' / ')}`;
+  idx++;
+  setTimeout(nextQuestion, 300);
+});
+
+/* ===================== 종료 ===================== */
+function timeUp(){
+  clearInterval(timer); timer=null;
+  enableInput(false);
+  els.feedback.textContent='시간 종료!';
+  finish();
+}
+function finish(){
+  clearInterval(timer); timer=null;
+  enableInput(false);
+  els.restart.classList.remove('hidden');
+  els.finalLine.textContent = `최종 점수: ${score} / ${MAX_QUESTIONS} (남은시간 ${Math.max(left,0)}초)`;
+  els.wrongBody.innerHTML = '';
+  if(wrongs.length===0){
+    els.wrongBody.innerHTML = '<tr><td colspan="4" class="center">오답 없음 🎉</td></tr>';
+  }else{
+    wrongs.forEach((w,i)=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${i+1}</td><td>${escapeHtml(w.jp)}</td><td>${escapeHtml(w.answers.join(' / '))}</td><td>${escapeHtml(w.mine)}</td>`;
+      els.wrongBody.appendChild(tr);
+    });
+  }
+  els.result.style.display='flex';
+  updateTop();
+}
+els.closeResult.onclick = ()=> els.result.style.display='none';
+els.restartFromResult.onclick = ()=>{ els.result.style.display='none'; startGame(); };
+
+/* ===================== 샘플 CSV (BOM 포함) ===================== */
+els.downloadSample.addEventListener('click', ()=>{
+  const sample = [
+    'jp,kr',
+    '"おはようございます","안녕하세요|좋은 아침입니다"',
+    '"ありがとうございます","감사합니다|고맙습니다"',
+    '"すみません","죄송합니다|실례합니다"',
+    '"はい","네"',
+    '"いいえ","아니요"',
+    '"お願いします","부탁합니다|제발요"',
+    '"頑張ってください","힘내세요|화이팅"',
+    '"お疲れ様です","수고하셨습니다|수고요"',
+    '"行きましょう","갑시다|가요"'
+  ].join('\n');
+  const BOM = '\uFEFF';
+  const blob = new Blob([BOM + sample], {type:'text/csv;charset=utf-8;'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'sample_jp_kr.csv';
+  document.body.appendChild(a);
+  a.click(); a.remove();
+});
+
+/* ===================== 마이크(웹 스피치 API, 안드로이드 크롬) ===================== */
+(function(){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const micBtn = els.micBtn;
+  const hint   = els.micHint;
+  const input  = els.ans;
+  const submit = els.submit;
+
+  if(!SR){
+    micBtn.disabled = true;
+    hint.textContent = '이 기기에서 브라우저 음성 인식이 지원되지 않습니다';
+    return;
+  }
+
+  let rec = null, stopping = false, autoSubmitTimer = null;
+
+  function makeRec(){
+    const r = new SR();
+    r.lang = 'ko-KR';          // 한국어 인식
+    r.interimResults = true;   // 중간 결과 표시
+    r.continuous = false;      // PTT(한 번에 한 문장)
+    r.maxAlternatives = 3;
+    r.onstart = () => {
+      micBtn.setAttribute('aria-pressed','true');
+      hint.textContent = '말씀하세요… (정지하려면 버튼을 다시 누르기)';
+    };
+    r.onresult = (e)=>{
+      const res = e.results[e.results.length-1];
+      const txt = res[0].transcript.trim();
+      input.value = txt;
+      clearTimeout(autoSubmitTimer);
+      if(res.isFinal){
+        autoSubmitTimer = setTimeout(()=> submit.click(), 1000); // 수정시간 1초
+      }
+    };
+    r.onend = ()=>{
+      micBtn.setAttribute('aria-pressed','false');
+      if(!stopping){ /* 자연 종료(무음 등) */ }
+      stopping = false;
+      hint.textContent = '마이크 버튼을 누르고 말하세요';
+    };
+    r.onerror = (e)=>{
+      const m = {
+        'no-speech':'음성이 감지되지 않았어요',
+        'audio-capture':'마이크를 찾을 수 없어요',
+        'not-allowed':'마이크 권한이 거부되었습니다(설정에서 허용)'
+      };
+      hint.textContent = m[e.error] || ('오류: '+e.error);
+      micBtn.setAttribute('aria-pressed','false');
+    };
+    return r;
+  }
+
+  function startRec(){
+    try{
+      if(rec) rec.abort();
+      rec = makeRec();
+      rec.start();          // 최초엔 권한 요청
+    }catch(err){
+      hint.textContent = '시작 실패: ' + (err.message || err);
+      micBtn.setAttribute('aria-pressed','false');
+    }
+  }
+  function stopRec(){
+    if(rec){
+      stopping = true;
+      try{ rec.stop(); }catch(_){}
+    }
+  }
+
+  // 토글(모바일 탭에 적합)
+  micBtn.addEventListener('click', ()=>{
+    if(input.disabled){ return; } // 게임 시작 전 잠금
+    const on = micBtn.getAttribute('aria-pressed') === 'true';
+    if(on) stopRec(); else startRec();
+  });
+
+  // 입력 활성/비활성에 따라 마이크 버튼 상태 동기화
+  window.toggleMicAvailability = function toggleMicAvailability(){
+    micBtn.disabled = input.disabled;
+    if(input.disabled){
+      micBtn.setAttribute('aria-pressed','false');
+      stopRec();
+    }
+  }
+})();
+</script>
+</body>
+</html>
