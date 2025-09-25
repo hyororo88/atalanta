@@ -4,6 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>일본어 → 한국어 번역 테스트 (오프라인 · 음성입력)</title>
+<!-- 스타일 생략 (기존과 동일) -->
 <style>
   :root{
     --green:#22b24b; --red:#ea1f28; --yellow:#ffe600; --ink:#101319; --bg:#fbfcfe;
@@ -53,6 +54,7 @@
   #micBtn[aria-pressed="true"]{ background:#ffe6e6; border-color:#ea1f28 }
   @media (max-width:860px){ .wrap{grid-template-columns:1fr} .board{min-height:520px} }
 </style>
+
 </head>
 <body>
 <div class="wrap">
@@ -114,7 +116,6 @@
     </div>
   </aside>
 </div>
-
 <!-- 결과 모달 -->
 <div class="result" id="result">
   <div class="resultCard">
@@ -130,9 +131,48 @@
     </div>
   </div>
 </div>
+<div id="intro" style="
+  position:fixed; inset:0; background:rgba(0,0,0,.58);
+  display:flex; align-items:center; justify-content:center; padding:20px; z-index:9999;">
+  <div style="background:#fff;border:2px solid #000;border-radius:12px;max-width:720px;width:100%;padding:18px">
+    <h2 style="margin:6px 0 8px">번역 테스트 시작</h2>
+    <p class="muted" style="margin:0 0 12px">CSV 헤더는 <b>zh,en,ja,ko,vi</b> 중 2개 이상 포함</p>
 
+    <div class="flex" style="gap:12px; align-items:flex-end; flex-wrap:wrap">
+      <div>
+        <label for="fromLang"><b>원문(From)</b></label><br>
+        <select id="fromLang" style="padding:10px;border:2px solid #000;border-radius:8px">
+          <option value="zh">중국어(zh)</option>
+          <option value="en">영어(en)</option>
+          <option value="ja" selected>일본어(ja)</option>
+          <option value="ko">한국어(ko)</option>
+          <option value="vi">베트남어(vi)</option>
+        </select>
+      </div>
+      <button id="swapLang" type="button" title="서로 바꾸기">↔︎</button>
+      <div>
+        <label for="toLang"><b>번역(To)</b></label><br>
+        <select id="toLang" style="padding:10px;border:2px solid #000;border-radius:8px">
+          <option value="zh">중국어(zh)</option>
+          <option value="en">영어(en)</option>
+          <option value="ja">일본어(ja)</option>
+          <option value="ko" selected>한국어(ko)</option>
+          <option value="vi">베트남어(vi)</option>
+        </select>
+      </div>
+      <div style="margin-left:auto">
+        <button id="introStart" type="button">언어 선택 완료</button>
+      </div>
+    </div>
+
+    <hr style="margin:14px 0">
+    <p class="muted">※ 예시 CSV가 필요하면 우측 ‘샘플 CSV’를 눌러 다운로드하세요(멀티헤더 포함).</p>
+  </div>
+</div>
+  
+  
 <script>
-/* ===================== 공통 상태 ===================== */
+// 기존 상수/상태/함수 부분은 그대로 유지
 const MAX_QUESTIONS = 10;
 const LIMIT_SECONDS = 90; // 1분 30초
 let pool = [];         // {jp, answers[]}[]
@@ -165,6 +205,51 @@ const els = {
   micHint: document.getElementById('micHint'),
 };
 
+  
+  
+  
+  /* ===== 언어 상태 & 매핑 ===== */
+let fromLang = 'ja'; // 기본: 일본어 → 한국어
+let toLang   = 'ko';
+
+const LANG_LABEL = { zh: '중국어', en: '영어', ja: '일본어', ko: '한국어', vi: '베트남어' };
+// 음성 인식용 BCP-47 코드(필요 시 조정)
+const SR_LOCALE  = { zh: 'zh-CN', en: 'en-US', ja: 'ja-JP', ko: 'ko-KR', vi: 'vi-VN' };
+
+// 입력창 placeholder/힌트 갱신
+function applyLangToUI(){
+  els.ans.placeholder = `${LANG_LABEL[toLang]} 번역을 입력하세요`;
+  els.micHint.textContent = `마이크 버튼을 누르고 ${LANG_LABEL[toLang]}로 말하세요`;
+}
+
+// 문제 박스 라벨(옵션)
+function labelProblemBox(){
+  els.problem.setAttribute('title', `원문(${LANG_LABEL[fromLang]})`);
+}
+  
+  /* ===== 인트로 제어 ===== */
+const introEl = document.getElementById('intro');
+const fromSel = document.getElementById('fromLang');
+const toSel   = document.getElementById('toLang');
+const swapBtn = document.getElementById('swapLang');
+const introStartBtn = document.getElementById('introStart');
+
+swapBtn.addEventListener('click', ()=>{
+  const f = fromSel.value, t = toSel.value;
+  fromSel.value = t; toSel.value = f;
+});
+
+introStartBtn.addEventListener('click', ()=>{
+  if(fromSel.value === toSel.value){
+    alert('원문과 번역 언어가 같을 수 없습니다.');
+    return;
+  }
+  fromLang = fromSel.value; toLang = toSel.value;
+  introEl.style.display = 'none';
+  applyLangToUI();
+  labelProblemBox();
+});
+  
 /* ===================== 유틸 ===================== */
 // 간단 CSV 파서(따옴표 처리 지원, CRLF/빈줄 제외)
 function parseCSV(text){
@@ -217,13 +302,22 @@ function updateTop(){
 function escapeHtml(s){ return (s||'').toString().replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 
 /* ===================== 파일 인코딩 처리 ===================== */
-// 파일을 UTF-8로 먼저, 깨짐(�)이 보이면 EUC-KR로 재디코딩
+// 파일을 UTF-8로 먼저, 깨짐(�)이 보이면 EUC-KR로 재디코딩 + BOM 제거
 async function readCsvFile(file){
   const buf = await file.arrayBuffer();
   const u8  = new Uint8Array(buf);
+  // 1차: UTF-8
   let text  = new TextDecoder('utf-8', {fatal:false}).decode(u8);
+  // BOM 제거
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+
+  // 깨짐 있으면 EUC-KR 재시도
   if (text.includes('�')) {
-    try { text = new TextDecoder('euc-kr').decode(u8); } catch(e){}
+    try {
+      let t2 = new TextDecoder('euc-kr').decode(u8);
+      if (t2.charCodeAt(0) === 0xFEFF) t2 = t2.slice(1);
+      text = t2;
+    } catch(e){}
   }
   return text;
 }
@@ -232,26 +326,37 @@ async function readCsvFile(file){
 els.file.addEventListener('change', async (e)=>{
   const f = e.target.files?.[0];
   if(!f){ els.start.disabled = true; return; }
-  const txt = await readCsvFile(f);   // ← 인코딩 안전 로딩
+  const txt = await readCsvFile(f);
   const rows = parseCSV(txt);
+  if(!rows.length){ alert('CSV를 읽지 못했습니다.'); els.start.disabled = true; return; }
+
+  // 다국어 헤더 지원: zh,en,ja,ko,vi 중 들어있는 열을 식별
   const header = rows[0].map(h=>h.trim().toLowerCase());
-  const jpi = header.indexOf('jp');
-  const kri = header.indexOf('kr');
-  if(jpi<0 || kri<0){
-    alert('CSV 첫 줄에 jp,kr 헤더가 필요합니다.');
+  const langs  = ['zh','en','ja','ko','vi'];
+  const colIdx = Object.fromEntries(langs.map(l=>[l, header.indexOf(l)]));
+
+  if(colIdx[fromLang] < 0 || colIdx[toLang] < 0){
+    alert(`CSV에 필요한 헤더가 없습니다. (필수: ${fromLang}, ${toLang})`);
     els.start.disabled = true;
     return;
   }
+
   pool = rows.slice(1)
-    .filter(r=>r[jpi] && r[kri])
+    .filter(r => r[colIdx[fromLang]] && r[colIdx[toLang]])
     .map(r=>{
-      const jp = r[jpi].trim();
-      const answers = r[kri].split('|').map(s=>s.trim()).filter(Boolean);
-      return {jp, answers};
+      const src = (r[colIdx[fromLang]]||'').trim();
+      const tgt = (r[colIdx[toLang]]||'').trim();
+      const answers = tgt.split('|').map(s=>s.trim()).filter(Boolean);
+      return { jp: src, answers };        // 기존 필드명 jp 재사용(표시 텍스트용)
     });
-  if(pool.length===0){ alert('유효한 문제 행이 없습니다.'); els.start.disabled = true; return; }
+
+  if(pool.length===0){
+    alert('유효한 문제 행이 없습니다.');
+    els.start.disabled = true;
+    return;
+  }
   els.start.disabled = false;
-  els.feedback.textContent = `로드 완료: ${pool.length}문항 · 시작을 누르세요`;
+  els.feedback.textContent = `로드 완료: ${pool.length}문항 · 시작을 누르세요 (From ${LANG_LABEL[fromLang]} → To ${LANG_LABEL[toLang]})`;
 });
 
 els.start.addEventListener('click', startGame);
@@ -339,34 +444,50 @@ function finish(){
   updateTop();
 }
 els.closeResult.onclick = ()=> els.result.style.display='none';
-els.restartFromResult.onclick = ()=>{ els.result.style.display='none'; startGame(); };
+els.restartFromResult.onclick = ()=>{ els.result.style.display='none'; 
+                                     applyLangToUI();
+labelProblemBox();
+
+                                     
+                                     startGame(); };
 
 /* ===================== 샘플 CSV (BOM 포함) ===================== */
+/* ===================== 샘플 CSV (BOM 포함, 다국어 헤더) ===================== */
+/* ===================== 샘플 CSV (BOM 포함, 다국어 헤더/줄바꿈) ===================== */
 els.downloadSample.addEventListener('click', ()=>{
-  const sample = [
-    'jp,kr',
-    '"おはようございます","안녕하세요|좋은 아침입니다"',
-    '"ありがとうございます","감사합니다|고맙습니다"',
-    '"すみません","죄송합니다|실례합니다"',
-    '"はい","네"',
-    '"いいえ","아니요"',
-    '"お願いします","부탁합니다|제발요"',
-    '"頑張ってください","힘내세요|화이팅"',
-    '"お疲れ様です","수고하셨습니다|수고요"',
-    '"行きましょう","갑시다|가요"'
-  ].join('\n');
-  const BOM = '\uFEFF';
-  const blob = new Blob([BOM + sample], {type:'text/csv;charset=utf-8;'});
+  // 행 배열(5개 컬럼 고정: zh,en,ja,ko,vi)
+  const rows = [
+    ['zh','en','ja','ko','vi'],
+    ['早上好','Good morning','おはようございます','좋은 아침입니다|안녕하세요','Chào buổi sáng'],
+    ['谢谢','Thank you','ありがとうございます','감사합니다|고맙습니다','Cảm ơn bạn'],
+    ['对不起','Sorry','すみません','죄송합니다|실례합니다','Xin lỗi'],
+    ['是','Yes','はい','네','Vâng'],
+    ['不是','No','いいえ','아니요','Không'],
+    ['拜托了','Please','お願いします','부탁합니다|제발요','Làm ơn'],
+    ['加油','Good luck','頑張ってください','힘내세요|화이팅','Cố lên'],
+    ['辛苦了','Good work','お疲れ様です','수고하셨습니다|수고요','Bạn vất vả rồi'],
+    ['我们走吧','Let’s go','行きましょう','갑시다|가요','Đi thôi']
+  ];
+
+  // CSV 직렬화 (필요시 따옴표 처리)
+  const esc = (s)=> {
+    const t = String(s ?? '');
+    return /[",\r\n]/.test(t) ? `"${t.replace(/"/g,'""')}"` : t;
+  };
+  const csv = rows.map(r => r.map(esc).join(',')).join('\r\n');
+
+  const BOM = '\uFEFF'; // 실제 BOM 문자
+  const blob = new Blob([BOM + csv], { type:'text/csv;charset=utf-8;' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'sample_jp_kr.csv';
+  a.download = 'sample_multilang.csv';
   document.body.appendChild(a);
   a.click(); a.remove();
 });
 
-/* ===================== 마이크(웹 스피치 API, 안드로이드 크롬) ===================== */
+// === 수정된 마이크 스크립트 ===
 (function(){
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition || null;
   const micBtn = els.micBtn;
   const hint   = els.micHint;
   const input  = els.ans;
@@ -374,7 +495,7 @@ els.downloadSample.addEventListener('click', ()=>{
 
   if(!SR){
     micBtn.disabled = true;
-    hint.textContent = '이 기기에서 브라우저 음성 인식이 지원되지 않습니다';
+    hint.textContent = '이 기기/브라우저에서는 음성 인식 API가 지원되지 않습니다';
     return;
   }
 
@@ -382,74 +503,77 @@ els.downloadSample.addEventListener('click', ()=>{
 
   function makeRec(){
     const r = new SR();
-    r.lang = 'ko-KR';          // 한국어 인식
-    r.interimResults = true;   // 중간 결과 표시
-    r.continuous = false;      // PTT(한 번에 한 문장)
-    r.maxAlternatives = 3;
+    r.lang = SR_LOCALE[toLang] || 'ko-KR';
+
+    r.interimResults = true;
+    r.continuous = false;
+    r.maxAlternatives = 1;
     r.onstart = () => {
       micBtn.setAttribute('aria-pressed','true');
-      hint.textContent = '말씀하세요… (정지하려면 버튼을 다시 누르기)';
+      hint.textContent = '말씀하세요…';
     };
-    r.onresult = (e)=>{
-      const res = e.results[e.results.length-1];
+    r.onresult = (e) => {
+      const res = e.results[e.results.length - 1];
       const txt = res[0].transcript.trim();
       input.value = txt;
       clearTimeout(autoSubmitTimer);
       if(res.isFinal){
-        autoSubmitTimer = setTimeout(()=> submit.click(), 1000); // 수정시간 1초
+        autoSubmitTimer = setTimeout(()=> submit.click(), 1000);
       }
     };
-    r.onend = ()=>{
+    r.onend = () => {
       micBtn.setAttribute('aria-pressed','false');
-      if(!stopping){ /* 자연 종료(무음 등) */ }
-      stopping = false;
       hint.textContent = '마이크 버튼을 누르고 말하세요';
+      stopping = false;
     };
-    r.onerror = (e)=>{
-      const m = {
-        'no-speech':'음성이 감지되지 않았어요',
-        'audio-capture':'마이크를 찾을 수 없어요',
-        'not-allowed':'마이크 권한이 거부되었습니다(설정에서 허용)'
-      };
-      hint.textContent = m[e.error] || ('오류: '+e.error);
+    r.onerror = (e) => {
+      console.error('SpeechRecognition error', e);
+      hint.textContent = '음성 인식 오류: ' + (e.error || '알 수 없음');
       micBtn.setAttribute('aria-pressed','false');
     };
     return r;
   }
 
-  function startRec(){
-    try{
-      if(rec) rec.abort();
-      rec = makeRec();
-      rec.start();          // 최초엔 권한 요청
-    }catch(err){
-      hint.textContent = '시작 실패: ' + (err.message || err);
-      micBtn.setAttribute('aria-pressed','false');
-    }
-  }
-  function stopRec(){
-    if(rec){
-      stopping = true;
-      try{ rec.stop(); }catch(_){}
-    }
-  }
-
-  // 토글(모바일 탭에 적합)
   micBtn.addEventListener('click', ()=>{
-    if(input.disabled){ return; } // 게임 시작 전 잠금
+    if(input.disabled) return;
     const on = micBtn.getAttribute('aria-pressed') === 'true';
-    if(on) stopRec(); else startRec();
+    if(on) {
+      if(rec) rec.abort();
+      stopping = true;
+    } else {
+      rec = makeRec();
+      try {
+        rec.start();
+      } catch(e){
+        console.error('rec.start 실패', e);
+        hint.textContent = '음성 인식 시작 실패';
+      }
+    }
   });
 
-  // 입력 활성/비활성에 따라 마이크 버튼 상태 동기화
-  window.toggleMicAvailability = function toggleMicAvailability(){
-    micBtn.disabled = input.disabled;
-    if(input.disabled){
-      micBtn.setAttribute('aria-pressed','false');
-      stopRec();
-    }
+  // 마이크 스크립트 마지막 부분은 이렇게 끝나야 합니다.
+window.toggleMicAvailability = function(){
+  micBtn.disabled = input.disabled;
+  if (input.disabled) {
+    micBtn.setAttribute('aria-pressed','false');
+    if (rec) rec.abort();
   }
-})();
+};
+  // === Enter로 제출: 입력기(IME) 조합 중에는 무시, 시작 전에는 무시 ===
+els.ans.addEventListener('keydown', (e) => {
+  // 한글/일본어 등 IME 조합 중에는 Enter가 들어와도 제출하지 않음
+  if (e.isComposing) return;
+
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    // 게임 시작 전(버튼 비활성)에는 무시
+    if (els.submit.disabled) return;
+    els.submit.click();
+  }
+});
+  
+})(<!-- 인트로 오버레이 -->
+);
 </script>
 </body>
 </html>
